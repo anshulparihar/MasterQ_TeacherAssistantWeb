@@ -35,7 +35,7 @@ function Hero() {
             Generate exam papers from <span className="text-primary">your own curriculum</span>.
           </h1>
           <p className="mt-5 max-w-xl text-lg text-muted-foreground">
-            Upload syllabi, textbooks, and past papers. ExamAI crafts question papers that stay strictly within your material — and grades student answers automatically.
+            Upload syllabi, textbooks, and past papers. MasterQ crafts question papers that stay strictly within your material — and grades student answers automatically.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button asChild size="lg" className="bg-primary hover:bg-primary/90 shadow-sm transition-smooth">
@@ -119,7 +119,7 @@ function Features() {
 }
 
 const STEPS = [
-  { n: "01", title: "Upload your library", desc: "Drag in syllabus PDFs, textbooks, and past papers. ExamAI indexes everything." },
+  { n: "01", title: "Upload your library", desc: "Drag in syllabus PDFs, textbooks, and past papers. MasterQ indexes everything." },
   { n: "02", title: "Configure the paper", desc: "Choose subject, topics, exam type, MCQ vs theory ratio, and difficulty split." },
   { n: "03", title: "Generate & export", desc: "Review, regenerate sections, then export to PDF or DOCX in one click." },
 ];
