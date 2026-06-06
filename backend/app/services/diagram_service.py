@@ -73,7 +73,18 @@ Do NOT include markdown formatting like ```json.
                     prompt,
                     generation_config=genai.GenerationConfig(response_mime_type="application/json")
                 )
-                results = json.loads(response.text)
+                raw_text = response.text
+                import re
+                match = re.search(r'```(?:json)?\s*(.*?)\s*```', raw_text, re.DOTALL)
+                if match:
+                    raw_text = match.group(1)
+                else:
+                    start = raw_text.find('[')
+                    end = raw_text.rfind(']')
+                    if start != -1 and end != -1:
+                        raw_text = raw_text[start:end+1]
+                        
+                results = json.loads(raw_text)
                 if isinstance(results, list) and len(results) == len(questions):
                     return results
                 else:

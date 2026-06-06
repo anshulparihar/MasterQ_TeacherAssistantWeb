@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Body, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Body, File, UploadFile, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -18,6 +18,10 @@ class SubjectCreateRequest(BaseModel):
     name: str
     academic_levels: List[str]
 
+class SubjectUpdateRequest(BaseModel):
+    name: str | None = None
+    academic_levels: List[str] | None = None
+
 class ExamTypeCreateRequest(BaseModel):
     name: str
     guidelines: Dict[str, Any]
@@ -27,9 +31,9 @@ async def list_users(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    sql = "SELECT id, email, role, created_at FROM users ORDER BY created_at DESC"
+    sql = "SELECT id, email, is_admin, created_at FROM users ORDER BY created_at DESC"
     result = await db.execute(text(sql))
-    users = [{"id": str(r[0]), "email": r[1], "role": r[2], "created_at": r[3]} for r in result.all()]
+    users = [{"id": str(r[0]), "email": r[1], "role": "admin" if r[2] else "user", "created_at": r[3]} for r in result.all()]
     return users
 
 @router.put("/users/{user_id}/role")
@@ -39,8 +43,9 @@ async def change_user_role(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    sql = "UPDATE users SET role = :role WHERE id = :id RETURNING id"
-    result = await db.execute(text(sql), {"role": request.role, "id": str(user_id)})
+    is_admin = request.role == "admin"
+    sql = "UPDATE users SET is_admin = :is_admin WHERE id = :id RETURNING id"
+    result = await db.execute(text(sql), {"is_admin": is_admin, "id": str(user_id)})
     if not result.first():
         raise HTTPException(status_code=404, detail="User not found")
     await db.commit()
@@ -79,16 +84,97 @@ async def dashboard_stats(
 
     return stats
 
+@router.get("/activity")
+async def get_recent_activity(
+    user_email: str | None = Query(None),
+    activity_type: str | None = Query(None),
+    limit: int = Query(20, le=100),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    # This combines activities from different tables: Documents, ChatSessions, QuestionPapers
+    # It constructs a unified list.
+    
+    activities = []
+    
+    # 1. Documents
+    if not activity_type or activity_type == "document":
+        doc_sql = """
+            SELECT d.id, d.filename as title, d.created_at, u.email 
+            FROM documents d 
+            JOIN users u ON d.user_id = u.id 
+            ORDER BY d.created_at DESC LIMIT :limit
+        """
+        doc_res = await db.execute(text(doc_sql), {"limit": limit})
+        for r in doc_res.all():
+            activities.append({
+                "id": str(r[0]),
+                "type": "document",
+                "title": r[1],
+                "created_at": r[2],
+                "user_email": r[3]
+            })
+            
+    # 2. Chat Sessions
+    if not activity_type or activity_type == "chat":
+        chat_sql = """
+            SELECT c.id, c.title, c.created_at, u.email 
+            FROM chat_sessions c 
+            JOIN users u ON c.user_id = u.id 
+            ORDER BY c.created_at DESC LIMIT :limit
+        """
+        chat_res = await db.execute(text(chat_sql), {"limit": limit})
+        for r in chat_res.all():
+            activities.append({
+                "id": str(r[0]),
+                "type": "chat",
+                "title": r[1],
+                "created_at": r[2],
+                "user_email": r[3]
+            })
+            
+    # 3. Question Papers
+    if not activity_type or activity_type == "question":
+        q_sql = """
+            SELECT q.id, q.title as title, q.created_at, u.email 
+            FROM question_papers q 
+            JOIN users u ON q.user_id = u.id 
+            ORDER BY q.created_at DESC LIMIT :limit
+        """
+        q_res = await db.execute(text(q_sql), {"limit": limit})
+        for r in q_res.all():
+            activities.append({
+                "id": str(r[0]),
+                "type": "question",
+                "title": r[1], # exam_type is used as title
+                "created_at": r[2],
+                "user_email": r[3]
+            })
+
+    # Filter by user_email if provided
+    if user_email:
+        activities = [a for a in activities if user_email.lower() in a["user_email"].lower()]
+
+    # Sort by created_at descending and limit
+    activities.sort(key=lambda x: x["created_at"], reverse=True)
+    return activities[:limit]
+
 @router.post("/subjects")
 async def create_subject(
     request: SubjectCreateRequest,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
+    import json
+    from sqlalchemy.exc import IntegrityError
     sid = uuid.uuid4()
-    sql = "INSERT INTO subjects (id, name) VALUES (:id, :name) RETURNING id"
-    await db.execute(text(sql), {"id": str(sid), "name": request.name})
-    await db.commit()
+    sql = "INSERT INTO subjects (id, name, academic_levels) VALUES (:id, :name, :academic_levels) RETURNING id"
+    try:
+        await db.execute(text(sql), {"id": str(sid), "name": request.name, "academic_levels": json.dumps(request.academic_levels)})
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Subject already exists")
     return {"id": str(sid), "name": request.name}
 
 @router.get("/subjects")
@@ -96,9 +182,50 @@ async def admin_list_subjects(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    sql = "SELECT id, name FROM subjects ORDER BY name ASC"
+    sql = "SELECT id, name, academic_levels FROM subjects ORDER BY name ASC"
     res = await db.execute(text(sql))
-    return [{"id": str(r[0]), "name": r[1]} for r in res.all()]
+    return [{"id": str(r[0]), "name": r[1], "academic_levels": r[2]} for r in res.all()]
+
+@router.put("/subjects/{subject_id}")
+async def update_subject(
+    subject_id: uuid.UUID,
+    request: SubjectUpdateRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    import json
+    from sqlalchemy.exc import IntegrityError
+    
+    # Check if subject exists
+    check_sql = "SELECT id, name, academic_levels FROM subjects WHERE id = :id"
+    res = await db.execute(text(check_sql), {"id": str(subject_id)})
+    row = res.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Subject not found")
+        
+    new_name = request.name if request.name is not None else row[1]
+    new_levels = json.dumps(request.academic_levels) if request.academic_levels is not None else row[2]
+    
+    update_sql = "UPDATE subjects SET name = :name, academic_levels = :levels WHERE id = :id RETURNING id"
+    try:
+        await db.execute(text(update_sql), {"name": new_name, "levels": new_levels, "id": str(subject_id)})
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="Subject with this name already exists")
+        
+    return {"status": "success", "id": str(subject_id)}
+
+@router.delete("/subjects/{subject_id}")
+async def delete_subject(
+    subject_id: uuid.UUID,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    sql = "DELETE FROM subjects WHERE id = :id"
+    await db.execute(text(sql), {"id": str(subject_id)})
+    await db.commit()
+    return {"status": "success"}
 
 @router.post("/exam-types")
 async def create_exam_type(

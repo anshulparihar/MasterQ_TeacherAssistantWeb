@@ -182,10 +182,25 @@ class QuestionGenerationEngine:
         
         batches = []
         for q_type, counts in [('mcq', mcq_counts), ('theory', theory_counts)]:
+            total_type = sum(counts.values())
+            if total_type == 0:
+                continue
+                
+            total_rec = max(1, math.ceil(total_type * 0.20))
+            
+            rec_assigned = {diff: 0 for diff in ['easy', 'medium', 'hard']}
+            available_buckets = [d for d in ['easy', 'medium', 'hard'] if counts.get(d, 0) > 0]
+            
+            if available_buckets:
+                for i in range(total_rec):
+                    rec_assigned[available_buckets[i % len(available_buckets)]] += 1
+            else:
+                rec_assigned["medium"] = total_rec
+
             for diff in ['easy', 'medium', 'hard']:
                 count = counts.get(diff, 0)
-                if count > 0:
-                    rec_count = max(1, math.ceil(count * 0.20))
+                rec_count = rec_assigned.get(diff, 0)
+                if count > 0 or rec_count > 0:
                     target_count = count + rec_count
                     
                     batches.append({
@@ -291,6 +306,37 @@ class QuestionGenerationEngine:
         fallback_topic_row = fallback_topic_res.first()
         fallback_topic_id = str(fallback_topic_row[0]) if fallback_topic_row else None
 
+        topic_cache = {}
+        async def get_or_create_topic(topic_name: str) -> str:
+            if not topic_name:
+                return fallback_topic_id
+                
+            topic_name = str(topic_name).strip()
+            if topic_name in topic_cache:
+                return topic_cache[topic_name]
+            
+            sql_check = "SELECT id FROM topics WHERE LOWER(name) = LOWER(:name) AND subject_id = :subject_id"
+            res = await db.execute(text(sql_check), {"name": topic_name, "subject_id": str(request['subject_id'])})
+            row = res.first()
+            if row:
+                topic_cache[topic_name] = str(row[0])
+                return str(row[0])
+            
+            try:
+                async with db.begin_nested():
+                    new_id = str(uuid.uuid4())
+                    sql_insert = "INSERT INTO topics (id, name, subject_id, created_at) VALUES (:id, :name, :subject_id, NOW())"
+                    await db.execute(text(sql_insert), {"id": new_id, "name": topic_name, "subject_id": str(request['subject_id'])})
+                    topic_cache[topic_name] = new_id
+                    return new_id
+            except Exception:
+                res = await db.execute(text(sql_check), {"name": topic_name, "subject_id": str(request['subject_id'])})
+                row = res.first()
+                if row:
+                    topic_cache[topic_name] = str(row[0])
+                    return str(row[0])
+                return fallback_topic_id
+
         async def insert_questions(q_list, is_rec):
             for q in q_list:
                 sql_q = """
@@ -307,6 +353,10 @@ class QuestionGenerationEngine:
                 emb = q.get('question_embedding')
                 pg_vector_str = f"[{','.join(map(str, emb))}]" if emb else None
                 
+                topics_covered = q.get('topics_covered', [])
+                primary_topic_name = topics_covered[0] if topics_covered else None
+                q_topic_id = await get_or_create_topic(primary_topic_name)
+                
                 await db.execute(text(sql_q), {
                     "id": str(q_id),
                     "text": q['question_text'],
@@ -315,7 +365,7 @@ class QuestionGenerationEngine:
                     "correct_answer": ans if q.get('question_type') == 'mcq' else None,
                     "model_answer": ans if q.get('question_type') == 'theory' else None,
                     "difficulty": q['difficulty'],
-                    "topic_id": fallback_topic_id,
+                    "topic_id": q_topic_id,
                     "qp_id": str(paper_id),
                     "diagram_url": q.get('diagram_url'),
                     "diagram_type": q.get('diagram_type'),
@@ -462,11 +512,20 @@ Return ONLY valid JSON in this exact format:
                         generation_config=genai.GenerationConfig(response_mime_type="application/json")
                     )
                     raw_text = response.text
+                    import re
+                    match = re.search(r'```(?:json)?\s*(.*?)\s*```', raw_text, re.DOTALL)
+                    if match:
+                        raw_text = match.group(1)
+                    else:
+                        start = raw_text.find('{')
+                        end = raw_text.rfind('}')
+                        if start != -1 and end != -1:
+                            raw_text = raw_text[start:end+1]
+
                     try:
                         data = json.loads(raw_text)
                     except json.JSONDecodeError as e:
                         logger.warning(f"Batch generation parse failure (attempt {attempt+1}): {e}")
-                        import re
                         # Fix common LLM unescaped backslash issues in JSON
                         fixed_text = re.sub(r'\\(?=[^"\\\\/bfnrtu])', r'\\\\', raw_text)
                         try:

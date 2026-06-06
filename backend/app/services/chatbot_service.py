@@ -19,7 +19,7 @@ class ChatbotService:
         self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
         self.retrieval_service = retrieval_service
     
-    async def chat(
+    async def chat_stream(
         self,
         db: AsyncSession,
         user_id: uuid.UUID,
@@ -27,7 +27,8 @@ class ChatbotService:
         message: str,
         selected_document_ids: list[uuid.UUID],
         selected_paper_ids: list[uuid.UUID]
-    ) -> dict:
+    ):
+        import json
         
         # 1. Retrieve context chunks
         context_chunks, all_references = await self.retrieval_service.retrieve_for_chatbot(
@@ -42,7 +43,7 @@ class ChatbotService:
         # 2. Fetch conversation history from DB (last 10 messages for context)
         sql_hist = """
         SELECT role, content FROM chat_messages 
-        WHERE session_id = :session_id 
+        WHERE session_id = CAST(:session_id AS UUID) 
         ORDER BY created_at DESC LIMIT 10
         """
         hist_res = await db.execute(text(sql_hist), {"session_id": str(session_id)})
@@ -76,7 +77,7 @@ class ChatbotService:
             doc_id = ref.get('doc_id')
             if doc_id and doc_id not in seen:
                 if ref.get('doc_type') == 'admin':
-                    ref['doc_filename'] = 'Standard Reference Material'
+                    continue
                 
                 unique_refs.append({
                     "document_id": doc_id,
@@ -102,19 +103,24 @@ USER QUESTION: {message}
 Respond helpfully and concisely based ONLY on the context above.
 """
 
-        # 4. Call Gemini with semaphore
+        # 4. Call Gemini with stream
+        assistant_reply = ""
         async with self.semaphore:
-            response = await asyncio.to_thread(
-                self.model.generate_content,
-                system_prompt
-            )
-            assistant_reply = response.text.strip()
-            
+            response = await self.model.generate_content_async(system_prompt, stream=True)
+            async for chunk in response:
+                if chunk.text:
+                    assistant_reply += chunk.text
+                    yield f"data: {json.dumps({'type': 'chunk', 'content': chunk.text})}\n\n"
+                    
+        assistant_reply = assistant_reply.strip()
+        
         # 5. Detect "not in context" responses
         exact_fallback = "I don't have information about this in the available documents."
         if exact_fallback.lower() in assistant_reply.lower():
             # Drop references if no information
             unique_refs = []
+            
+        yield f"data: {json.dumps({'type': 'end', 'references': unique_refs})}\n\n"
             
         # 7. Save user message + assistant response to DB
         user_msg_id = uuid.uuid4()
@@ -122,11 +128,11 @@ Respond helpfully and concisely based ONLY on the context above.
         
         sql_insert_user = """
         INSERT INTO chat_messages (id, session_id, role, content, created_at)
-        VALUES (:id, :session_id, :role, :content, NOW())
+        VALUES (CAST(:id AS UUID), CAST(:session_id AS UUID), :role, :content, NOW())
         """
         sql_insert_asst = """
-        INSERT INTO chat_messages (id, session_id, role, content, references, created_at)
-        VALUES (:id, :session_id, :role, :content, :references, NOW())
+        INSERT INTO chat_messages (id, session_id, role, content, "references", created_at)
+        VALUES (CAST(:id AS UUID), CAST(:session_id AS UUID), :role, :content, :references, NOW())
         """
         
         ref_filenames = [r['filename'] for r in unique_refs] if unique_refs else None
@@ -134,12 +140,6 @@ Respond helpfully and concisely based ONLY on the context above.
         await db.execute(text(sql_insert_user), {"id": str(user_msg_id), "session_id": str(session_id), "role": "user", "content": message})
         await db.execute(text(sql_insert_asst), {"id": str(asst_msg_id), "session_id": str(session_id), "role": "assistant", "content": assistant_reply, "references": ref_filenames})
         await db.commit()
-
-        # 8. Return response
-        return {
-            "content": assistant_reply,
-            "references": unique_refs
-        }
         
     async def create_session(
         self,
@@ -152,15 +152,19 @@ Respond helpfully and concisely based ONLY on the context above.
         title = "New Chat Session"
         
         sql = """
-        INSERT INTO chat_sessions (id, user_id, title, created_at) 
-        VALUES (:id, :user_id, :title, NOW())
+        INSERT INTO chat_sessions (id, user_id, title, created_at, updated_at) 
+        VALUES (CAST(:id AS UUID), CAST(:user_id AS UUID), :title, NOW(), NOW())
+        RETURNING created_at
         """
-        await db.execute(text(sql), {"id": str(session_id), "user_id": str(user_id), "title": title})
+        res = await db.execute(text(sql), {"id": str(session_id), "user_id": str(user_id), "title": title})
+        row = res.first()
+        created_at = row[0] if row else None
         await db.commit()
         
         return {
             "id": str(session_id),
-            "title": title
+            "title": title,
+            "created_at": created_at.isoformat() if created_at else None
         }
         
     async def get_session_history(
@@ -170,12 +174,12 @@ Respond helpfully and concisely based ONLY on the context above.
         user_id: uuid.UUID
     ) -> list[dict]:
         # Verify ownership
-        sql_check = "SELECT id FROM chat_sessions WHERE id = :session_id AND user_id = :user_id"
+        sql_check = "SELECT id FROM chat_sessions WHERE id = CAST(:session_id AS UUID) AND user_id = CAST(:user_id AS UUID)"
         res = await db.execute(text(sql_check), {"session_id": str(session_id), "user_id": str(user_id)})
         if not res.first():
             raise ValueError("Session not found or unauthorized")
             
-        sql_hist = "SELECT id, role, content, created_at FROM chat_messages WHERE session_id = :session_id ORDER BY created_at ASC"
+        sql_hist = "SELECT id, role, content, created_at FROM chat_messages WHERE session_id = CAST(:session_id AS UUID) ORDER BY created_at ASC"
         res_hist = await db.execute(text(sql_hist), {"session_id": str(session_id)})
         
         messages = []

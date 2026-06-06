@@ -24,22 +24,22 @@ export default function Home() {
 
 function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-glow" aria-hidden />
+    <section className="relative overflow-hidden bg-background">
+      <div className="absolute inset-0 bg-grid-primary/5 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] dark:bg-grid-primary/10" aria-hidden />
       <div className="mx-auto grid max-w-7xl gap-12 px-6 py-20 md:grid-cols-2 md:py-28">
         <div className="flex flex-col justify-center">
           <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-xs font-semibold text-accent-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
             <Sparkles className="h-3 w-3" /> Built for academic institutes
           </div>
-          <h1 className="mt-5 text-4xl font-bold leading-[1.05] md:text-6xl">
-            Generate exam papers from <span className="text-gradient">your own curriculum</span>.
+          <h1 className="mt-5 text-4xl font-bold leading-[1.05] md:text-6xl text-foreground">
+            Generate exam papers from <span className="text-primary">your own curriculum</span>.
           </h1>
           <p className="mt-5 max-w-xl text-lg text-muted-foreground">
             Upload syllabi, textbooks, and past papers. ExamAI crafts question papers that stay strictly within your material — and grades student answers automatically.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button asChild variant="hero" size="lg">
-              <Link href="/register">Start free trial <ArrowRight className="h-4 w-4" /></Link>
+            <Button asChild size="lg" className="bg-primary hover:bg-primary/90 shadow-sm transition-smooth">
+              <Link href="/register">Start free trial <ArrowRight className="h-4 w-4 ml-2" /></Link>
             </Button>
             <Button asChild variant="outline" size="lg">
               <Link href="/features">Explore features</Link>
@@ -51,7 +51,7 @@ function Hero() {
           </div>
         </div>
         <div className="relative">
-          <div className="absolute -inset-4 rounded-3xl bg-gradient-primary opacity-20 blur-2xl" aria-hidden />
+          <div className="absolute -inset-4 rounded-3xl bg-primary/5 opacity-50 blur-2xl" aria-hidden />
           <Image
             src="/assets/hero.jpg"
             alt="AI knowledge graph connecting uploaded documents to generated questions"
@@ -104,8 +104,8 @@ function Features() {
         </div>
         <div className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
-            <Card key={f.title} className="group relative overflow-hidden border-border/60 p-6 shadow-card transition-smooth hover:-translate-y-1 hover:shadow-elegant">
-              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground shadow-glow">
+            <Card key={f.title} className="interactive-card p-6 bg-card">
+              <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <f.icon className="h-5 w-5" />
               </div>
               <h3 className="font-display text-lg font-semibold">{f.title}</h3>
@@ -134,8 +134,8 @@ function Workflow() {
         </div>
         <div className="mt-14 grid gap-6 md:grid-cols-3">
           {STEPS.map((s) => (
-            <Card key={s.n} className="border-border/60 p-7 shadow-card">
-              <div className="font-display text-5xl font-bold text-gradient">{s.n}</div>
+            <Card key={s.n} className="interactive-card p-7 bg-card">
+              <div className="font-sans text-5xl font-bold text-primary/80">{s.n}</div>
               <h3 className="mt-4 font-display text-lg font-semibold">{s.title}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{s.desc}</p>
             </Card>
@@ -150,8 +150,8 @@ function CTA() {
   return (
     <section className="py-24">
       <div className="mx-auto max-w-5xl px-6">
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-hero p-12 text-center shadow-elegant md:p-16">
-          <div className="absolute inset-0 bg-gradient-glow opacity-60" aria-hidden />
+        <div className="relative overflow-hidden rounded-[2rem] bg-primary p-12 text-center shadow-lg md:p-16">
+          <div className="absolute inset-0 bg-primary/90 opacity-80" aria-hidden />
           <div className="relative">
             <Layers className="mx-auto h-10 w-10 text-primary-foreground/90" />
             <h2 className="mt-4 font-display text-3xl font-bold text-primary-foreground md:text-4xl">
@@ -161,7 +161,7 @@ function CTA() {
               Join institutes saving hours every week. Free for the first 30 days.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button asChild variant="glow" size="lg">
+              <Button asChild size="lg" className="bg-white text-primary hover:bg-white/90 shadow-sm">
                 <Link href="/register">Create your workspace</Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="border-white/30 bg-white/10 text-primary-foreground hover:bg-white/20 hover:text-primary-foreground">

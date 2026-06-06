@@ -2,25 +2,30 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { PaperExport } from '@/components/PaperExport';
 import { ExportDialog } from '@/components/ExportDialog';
+import { QuestionCard } from '@/components/QuestionCard';
+import { BackButton } from '@/components/ui/BackButton';
+import { Button } from '@/components/ui/button';
+import { Download, Loader2 } from 'lucide-react';
+import { api } from '@/lib/api';
+import toast from 'react-hot-toast';
 
 export default function PaperViewerPage() {
   const params = useParams();
   const paperId = params.paperId as string;
   const [paper, setPaper] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   useEffect(() => {
     const fetchPaper = async () => {
       try {
-        const res = await fetch(`http://localhost:8000/questions/papers/${paperId}`, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-        });
-        const data = await res.json();
-        setPaper(data);
+        setLoading(true);
+        const res = await api.get(`/questions/papers/${paperId}`);
+        setPaper(res.data);
       } catch (err) {
         console.error("Failed to load paper", err);
+        toast.error("Failed to load paper");
       } finally {
         setLoading(false);
       }
@@ -28,56 +33,108 @@ export default function PaperViewerPage() {
     if (paperId) fetchPaper();
   }, [paperId]);
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleSwap = (questionId: string) => {
-    // Optimistic UI update logic: find a mock recommended question and swap instantly
+  const handleSwap = (oldQuestionId: string, newQuestion: any) => {
     setPaper((prev: any) => {
       const newQuestions = prev.questions.map((q: any) => {
-        if (q.id === questionId) {
-          return {
-            ...q,
-            id: 'swapped_' + Date.now(),
-            text: '[SWAPPED] ' + q.text,
-            is_swapped: true
-          };
+        if (q.id === oldQuestionId) {
+          return newQuestion;
         }
         return q;
       });
       return { ...prev, questions: newQuestions };
     });
-    
-    // Background fetch to actually log the swap or fetch real data would go here
+    toast.success('Question swapped successfully');
   };
 
-  const [isExportOpen, setIsExportOpen] = useState(false);
-
   if (loading) {
-    return <div className="p-8 text-center animate-pulse">Loading Question Paper...</div>;
+    return (
+      <div className="flex justify-center items-center h-[50vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   if (!paper) {
-    return <div className="p-8 text-center text-red-500">Failed to load question paper.</div>;
+    return (
+      <div className="p-8 text-center text-red-500 bg-red-50 rounded-2xl border border-red-100 font-medium">
+        Failed to load question paper.
+      </div>
+    );
   }
 
-  // Group questions by type for neat rendering
+  // Group questions by type
   const mcqQuestions = paper.questions.filter((q: any) => q.type === 'mcq');
   const theoryQuestions = paper.questions.filter((q: any) => q.type === 'theory');
 
   return (
-    <div className="max-w-5xl mx-auto p-4 md:p-8">
-      <div className="flex justify-end mb-4 no-print">
-        <button 
+    <div className="max-w-4xl mx-auto pb-24 animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-200">
+        <div className="flex items-center gap-4">
+          <BackButton />
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Paper Review</h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Review, swap questions with AI alternatives, and export your paper.
+            </p>
+          </div>
+        </div>
+        <Button 
           onClick={() => setIsExportOpen(true)}
-          className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
+          className="bg-primary hover:bg-primary/90 shadow-sm rounded-xl px-5 h-11"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-download mr-2 h-4 w-4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          <Download className="h-4 w-4 mr-2" />
           Export Paper
-        </button>
+        </Button>
       </div>
-      <PaperExport paper={paper} />
+
+      <div className="space-y-12">
+        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center">
+          <h2 className="text-2xl font-bold uppercase tracking-wider text-slate-900 mb-2">{paper.title}</h2>
+          <div className="flex justify-center items-center gap-6 text-sm font-medium text-slate-600">
+            <span>Subject: {paper.subject?.name || 'Standard'}</span>
+            <span>Date: {new Date(paper.created_at).toLocaleDateString()}</span>
+            <span>Questions: {paper.questions.length}</span>
+          </div>
+        </div>
+
+        {mcqQuestions.length > 0 && (
+          <section>
+            <h3 className="text-xl font-bold mb-6 text-slate-900 flex items-center gap-2">
+              <span className="bg-primary/10 text-primary w-8 h-8 rounded-lg flex items-center justify-center text-sm">A</span>
+              Multiple Choice Questions
+            </h3>
+            <div className="space-y-6">
+              {mcqQuestions.map((q: any, i: number) => (
+                <QuestionCard 
+                  key={q.id} 
+                  question={q} 
+                  index={i}
+                  onSwap={(newQ) => handleSwap(q.id, newQ)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {theoryQuestions.length > 0 && (
+          <section>
+            <h3 className="text-xl font-bold mb-6 text-slate-900 flex items-center gap-2">
+              <span className="bg-primary/10 text-primary w-8 h-8 rounded-lg flex items-center justify-center text-sm">B</span>
+              Theory & Subjective
+            </h3>
+            <div className="space-y-6">
+              {theoryQuestions.map((q: any, i: number) => (
+                <QuestionCard 
+                  key={q.id} 
+                  question={q} 
+                  index={mcqQuestions.length + i}
+                  onSwap={(newQ) => handleSwap(q.id, newQ)}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
       
       <ExportDialog 
         paperId={paperId} 

@@ -37,14 +37,34 @@ async def generate_questions(
         logger.error(f"Generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Generation failed")
 
+from sqlalchemy.orm import joinedload
+from sqlalchemy import select
+from app.models.question import QuestionPaper
+
 @router.get("/papers/me")
 async def get_my_papers(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    sql = "SELECT id, title, created_at FROM question_papers WHERE user_id = :user_id ORDER BY created_at DESC"
-    result = await db.execute(text(sql), {"user_id": str(user.id)})
-    return [{"id": row[0], "title": row[1], "created_at": row[2]} for row in result.all()]
+    query = (
+        select(QuestionPaper)
+        .options(joinedload(QuestionPaper.subject), joinedload(QuestionPaper.questions))
+        .where(QuestionPaper.user_id == user.id)
+        .order_by(QuestionPaper.created_at.desc())
+    )
+    result = await db.execute(query)
+    papers = result.unique().scalars().all()
+    
+    return [
+        {
+            "id": str(p.id),
+            "title": p.title,
+            "created_at": p.created_at,
+            "subject": {"name": p.subject.name} if p.subject else None,
+            "questions": [{"id": str(q.id)} for q in p.questions]
+        }
+        for p in papers
+    ]
 
 @router.get("/papers/{paper_id}")
 async def get_paper(

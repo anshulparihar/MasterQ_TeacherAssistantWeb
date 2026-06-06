@@ -1,6 +1,7 @@
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -36,16 +37,16 @@ async def create_session(
         )
         return session
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to create session")
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
 @router.get("/sessions/me")
 async def get_my_sessions(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    sql = "SELECT id, title, created_at FROM chat_sessions WHERE user_id = :user_id ORDER BY created_at DESC"
+    sql = "SELECT id, title, created_at FROM chat_sessions WHERE user_id = CAST(:user_id AS UUID) ORDER BY created_at DESC"
     result = await db.execute(text(sql), {"user_id": str(user.id)})
-    return [{"id": row[0], "title": row[1], "created_at": row[2]} for row in result.all()]
+    return [{"id": str(row[0]), "title": str(row[1]), "created_at": row[2].isoformat() if hasattr(row[2], 'isoformat') else str(row[2])} for row in result.all()]
 
 @router.get("/sessions/{session_id}")
 async def get_session(
@@ -59,7 +60,7 @@ async def get_session(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to fetch session")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch session: {str(e)}")
 
 @router.post("/sessions/{session_id}/message")
 async def send_message(
@@ -69,19 +70,21 @@ async def send_message(
     db: AsyncSession = Depends(get_db)
 ):
     try:
-        response = await chatbot_service.chat(
-            db=db,
-            user_id=user.id,
-            session_id=session_id,
-            message=request.message,
-            selected_document_ids=request.selected_document_ids,
-            selected_paper_ids=request.selected_paper_ids
+        return StreamingResponse(
+            chatbot_service.chat_stream(
+                db=db,
+                user_id=user.id,
+                session_id=session_id,
+                message=request.message,
+                selected_document_ids=request.selected_document_ids,
+                selected_paper_ids=request.selected_paper_ids
+            ),
+            media_type="text/event-stream"
         )
-        return response
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Failed to process message")
+        raise HTTPException(status_code=500, detail=f"Failed to process message: {str(e)}")
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(
@@ -90,15 +93,15 @@ async def delete_session(
     db: AsyncSession = Depends(get_db)
 ):
     # Verify ownership before delete
-    sql_check = "SELECT id FROM chat_sessions WHERE id = :id AND user_id = :user_id"
+    sql_check = "SELECT id FROM chat_sessions WHERE id = CAST(:id AS UUID) AND user_id = CAST(:user_id AS UUID)"
     res = await db.execute(text(sql_check), {"id": str(session_id), "user_id": str(user.id)})
     if not res.first():
         raise HTTPException(status_code=404, detail="Session not found")
         
-    sql_del_msgs = "DELETE FROM chat_messages WHERE session_id = :id"
+    sql_del_msgs = "DELETE FROM chat_messages WHERE session_id = CAST(:id AS UUID)"
     await db.execute(text(sql_del_msgs), {"id": str(session_id)})
     
-    sql_del = "DELETE FROM chat_sessions WHERE id = :id"
+    sql_del = "DELETE FROM chat_sessions WHERE id = CAST(:id AS UUID)"
     await db.execute(text(sql_del), {"id": str(session_id)})
     await db.commit()
     

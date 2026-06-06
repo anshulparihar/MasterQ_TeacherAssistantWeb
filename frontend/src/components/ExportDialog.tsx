@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Loader2, X } from 'lucide-react';
+import { Download, Loader2, X, FileText } from 'lucide-react';
+import { api } from '@/lib/api';
+import toast from 'react-hot-toast';
 
 interface ExportDialogProps {
   paperId: string;
@@ -12,50 +14,27 @@ interface ExportDialogProps {
 
 export function ExportDialog({ paperId, paperTitle, isOpen, onClose }: ExportDialogProps) {
   const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
-  const [includeAnswers, setIncludeAnswers] = useState(false);
-  const [includeExplanations, setIncludeExplanations] = useState(false);
-  const [includeHints, setIncludeHints] = useState(false);
+  const [includeMarkingScheme, setIncludeMarkingScheme] = useState(false);
+  const [includeSolutionKey, setIncludeSolutionKey] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  // If Answers is unchecked, uncheck Explanations and Hints automatically
-  const handleIncludeAnswersChange = (checked: boolean) => {
-    setIncludeAnswers(checked);
-    if (!checked) {
-      setIncludeExplanations(false);
-      setIncludeHints(false);
-    }
-  };
-
   const handleExport = async () => {
     setIsExporting(true);
-    setError(null);
     try {
-      const token = localStorage.getItem('token');
-      if (!token) throw new Error('Not authenticated');
-
       const params = new URLSearchParams({
         format,
-        include_answers: includeAnswers.toString(),
-        include_explanations: includeExplanations.toString(),
-        include_hints: includeHints.toString(),
+        include_marking_scheme: includeMarkingScheme.toString(),
+        include_solution_key: includeSolutionKey.toString(),
       });
 
-      const response = await fetch(`/api/questions/papers/${paperId}/export?${params.toString()}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const response = await api.get(`/questions/papers/${paperId}/export?${params.toString()}`, {
+        responseType: 'blob'
       });
 
-      if (!response.ok) {
-        throw new Error('Export failed. Please try again.');
-      }
-
-      const blob = await response.blob();
-      
-      const contentDisposition = response.headers.get('Content-Disposition');
+      const blob = response.data;
+      const contentDisposition = response.headers['content-disposition'];
       let filename = `${paperTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_export.${format}`;
       
       if (contentDisposition) {
@@ -73,112 +52,108 @@ export function ExportDialog({ paperId, paperTitle, isOpen, onClose }: ExportDia
       document.body.removeChild(link);
       URL.revokeObjectURL(link.href);
       
+      toast.success('Paper exported successfully');
       onClose();
     } catch (err: any) {
-      setError(err.message || 'An error occurred during export.');
+      console.error(err);
+      toast.error('Failed to export paper. Please try again.');
     } finally {
       setIsExporting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-md overflow-hidden relative">
-        <div className="flex justify-between items-center p-6 border-b">
-          <h2 className="text-lg font-semibold text-slate-900">Export Question Paper</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-700 transition-colors">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden relative animate-in zoom-in-95 duration-200">
+        <div className="flex justify-between items-center p-6 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="bg-primary/10 p-2 rounded-xl text-primary">
+              <FileText className="h-5 w-5" />
+            </div>
+            <h2 className="text-lg font-bold text-slate-900">Export Paper</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
-          {error && <div className="text-red-500 text-sm font-medium bg-red-50 p-3 rounded-md">{error}</div>}
+        <div className="p-6 space-y-8">
           
-          <div className="space-y-3">
-            <h4 className="font-medium text-sm text-slate-700">Format</h4>
-            <div className="flex flex-col space-y-2">
-              <label className="flex items-center space-x-2 cursor-pointer">
+          <div className="space-y-4">
+            <h4 className="font-semibold text-sm text-slate-900 uppercase tracking-wider">Document Format</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <label className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all ${format === 'pdf' ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300'}`}>
                 <input 
                   type="radio" 
                   name="format" 
                   value="pdf" 
                   checked={format === 'pdf'} 
                   onChange={() => setFormat('pdf')}
-                  className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                  className="sr-only"
                 />
-                <span className="text-sm font-medium text-slate-700">PDF Document (.pdf)</span>
+                <span className={`text-sm font-bold ${format === 'pdf' ? 'text-primary' : 'text-slate-600'}`}>PDF Document</span>
+                <span className="text-xs text-slate-400 mt-1">.pdf format</span>
               </label>
-              <label className="flex items-center space-x-2 cursor-pointer">
+              <label className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all ${format === 'docx' ? 'border-primary bg-primary/5' : 'border-slate-200 hover:border-slate-300'}`}>
                 <input 
                   type="radio" 
                   name="format" 
                   value="docx" 
                   checked={format === 'docx'} 
                   onChange={() => setFormat('docx')}
-                  className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                  className="sr-only"
                 />
-                <span className="text-sm font-medium text-slate-700">Word Document (.docx)</span>
+                <span className={`text-sm font-bold ${format === 'docx' ? 'text-primary' : 'text-slate-600'}`}>Word Document</span>
+                <span className="text-xs text-slate-400 mt-1">.docx format</span>
               </label>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <h4 className="font-medium text-sm text-slate-700">Include in export</h4>
+          <div className="space-y-4">
+            <h4 className="font-semibold text-sm text-slate-900 uppercase tracking-wider">Include Additional Content</h4>
             <div className="space-y-3">
-              <label className="flex items-center space-x-2 cursor-pointer">
+              <label className="flex items-center space-x-3 cursor-pointer p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
                 <input 
                   type="checkbox" 
-                  checked={includeAnswers}
-                  onChange={(e) => handleIncludeAnswersChange(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  checked={includeMarkingScheme}
+                  onChange={(e) => setIncludeMarkingScheme(e.target.checked)}
+                  className="w-5 h-5 text-primary rounded border-slate-300 focus:ring-primary focus:ring-offset-0 transition-all"
                 />
-                <span className="text-sm font-medium text-slate-700">Answers (Teacher's Copy)</span>
+                <span className="text-sm font-medium text-slate-700">Include Marking Scheme</span>
               </label>
               
-              <label className={`flex items-center space-x-2 ml-6 ${!includeAnswers ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+              <label className="flex items-center space-x-3 cursor-pointer p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
                 <input 
                   type="checkbox" 
-                  checked={includeExplanations}
-                  onChange={(e) => setIncludeExplanations(e.target.checked)}
-                  disabled={!includeAnswers}
-                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 disabled:bg-slate-100"
+                  checked={includeSolutionKey}
+                  onChange={(e) => setIncludeSolutionKey(e.target.checked)}
+                  className="w-5 h-5 text-primary rounded border-slate-300 focus:ring-primary focus:ring-offset-0 transition-all"
                 />
-                <span className="text-sm font-medium text-slate-700">Explanations</span>
-              </label>
-
-              <label className={`flex items-center space-x-2 ml-6 ${!includeAnswers ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
-                <input 
-                  type="checkbox" 
-                  checked={includeHints}
-                  onChange={(e) => setIncludeHints(e.target.checked)}
-                  disabled={!includeAnswers}
-                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 disabled:bg-slate-100"
-                />
-                <span className="text-sm font-medium text-slate-700">Hints</span>
+                <span className="text-sm font-medium text-slate-700">Include Solution Key</span>
               </label>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end space-x-2 p-6 border-t bg-slate-50">
+        <div className="flex justify-end space-x-3 p-6 border-t border-slate-100 bg-slate-50/50">
           <button 
             onClick={onClose} 
             disabled={isExporting}
-            className="px-4 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            className="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-200 hover:text-slate-900 transition-colors focus:outline-none disabled:opacity-50"
           >
             Cancel
           </button>
           <button 
             onClick={handleExport} 
             disabled={isExporting}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            className="inline-flex items-center px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-primary hover:bg-primary/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all disabled:opacity-50"
           >
             {isExporting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Download className="mr-2 h-4 w-4" />
             )}
-            Export
+            {isExporting ? 'Exporting...' : 'Export File'}
           </button>
         </div>
       </div>

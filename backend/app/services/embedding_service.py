@@ -23,7 +23,8 @@ class EmbeddingService:
     async def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         async with self.semaphore:
             # We use embed_content from genai
-            response = genai.embed_content(
+            response = await asyncio.to_thread(
+                genai.embed_content,
                 model=self.model_name,
                 content=texts,
                 task_type="retrieval_document",
@@ -51,7 +52,8 @@ class EmbeddingService:
 
     async def embed_query(self, text: str) -> list[float]:
         async with self.semaphore:
-            response = genai.embed_content(
+            response = await asyncio.to_thread(
+                genai.embed_content,
                 model=self.model_name,
                 content=text,
                 task_type="retrieval_query",

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Latex from 'react-latex-next';
+import { Sparkles, Loader2, ArrowLeftRight, CheckCircle2 } from 'lucide-react';
 
 interface Question {
   id: string;
@@ -16,57 +17,78 @@ interface Question {
 
 interface QuestionCardProps {
   question: Question;
+  index?: number;
   isRecommendation?: boolean;
-  onSwap?: () => void;
+  onSwap?: (newQuestion: Question) => void;
 }
 
-export const QuestionCard = React.memo(function QuestionCard({ question, isRecommendation, onSwap }: QuestionCardProps) {
+export const QuestionCard = React.memo(function QuestionCard({ question, index, isRecommendation, onSwap }: QuestionCardProps) {
+  const [showAI, setShowAI] = useState(false);
+  const [isFetchingAI, setIsFetchingAI] = useState(false);
+  const [alternatives, setAlternatives] = useState<Question[]>([]);
+
   const getDifficultyColor = (diff: string) => {
     switch (diff.toLowerCase()) {
-      case 'easy': return 'bg-green-100 text-green-800 border-green-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'hard': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'easy': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'medium': return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'hard': return 'bg-red-50 text-red-700 border-red-200';
+      default: return 'bg-slate-100 text-slate-700 border-slate-200';
     }
   };
 
+  useEffect(() => {
+    if (showAI && alternatives.length === 0) {
+      setIsFetchingAI(true);
+      // Simulate API call to fetch AI alternatives
+      const timer = setTimeout(() => {
+        setAlternatives([
+          {
+            ...question,
+            id: `alt-1-${Date.now()}`,
+            text: `[Alternative 1] ${question.text}`,
+          },
+          {
+            ...question,
+            id: `alt-2-${Date.now()}`,
+            text: `[Alternative 2] ${question.text}`,
+            difficulty: question.difficulty === 'hard' ? 'medium' : 'hard'
+          }
+        ]);
+        setIsFetchingAI(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [showAI, question, alternatives.length]);
+
   return (
-    <div className={`border rounded-xl p-6 shadow-sm mb-4 relative group transition-colors ${isRecommendation ? 'bg-primary/5 border-primary/20' : 'bg-card'}`}>
-      <div className="flex justify-between items-start mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider bg-primary/10 text-primary px-2 py-1 rounded">
+    <div className={`border rounded-2xl p-6 shadow-sm mb-6 transition-all duration-300 ${isRecommendation ? 'bg-indigo-50/50 border-primary/20' : 'bg-white border-slate-200'}`}>
+      
+      {/* Header */}
+      <div className="flex justify-between items-center mb-5 pb-4 border-b border-slate-100">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-slate-900 text-lg">
+            {isRecommendation ? 'Alternative' : `Question ${index ? index + 1 : ''}`}
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-widest bg-slate-100 text-slate-600 px-2 py-1 rounded-md">
             {question.type}
           </span>
-          {isRecommendation && (
-            <span className="text-xs font-bold uppercase tracking-wider bg-blue-100 text-blue-800 px-2 py-1 rounded flex items-center gap-1">
-              ⭐ Recommended
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3">
-          {onSwap && (
-            <button 
-              onClick={onSwap}
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-xs bg-muted hover:bg-primary hover:text-primary-foreground px-3 py-1.5 rounded-md font-medium print:hidden shadow-sm flex items-center gap-1"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 2v6h6"/></svg>
-              Swap
-            </button>
-          )}
-          <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded border ${getDifficultyColor(question.difficulty)}`}>
+          <span className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border ${getDifficultyColor(question.difficulty)}`}>
             {question.difficulty}
           </span>
         </div>
       </div>
       
-      <div className="text-lg font-medium mb-6 whitespace-pre-wrap leading-relaxed"><Latex>{question.text}</Latex></div>
+      {/* Body */}
+      <div className="text-base font-medium mb-6 text-slate-800 whitespace-pre-wrap leading-relaxed"><Latex>{question.text}</Latex></div>
       
       {question.diagram_url && (
         <div className="my-6 flex flex-col items-center">
           <img 
             src={question.diagram_url} 
             alt="Question Diagram" 
-            className="max-w-[400px] w-full border border-border rounded-md shadow-sm"
+            className="max-w-[400px] w-full border border-slate-200 rounded-xl shadow-sm"
           />
         </div>
       )}
@@ -76,75 +98,97 @@ export const QuestionCard = React.memo(function QuestionCard({ question, isRecom
           {question.options.map((option, idx) => (
             <div 
               key={idx} 
-              className="p-3 border rounded-lg transition-colors flex items-center print:border-gray-300 bg-muted/30 hover:bg-muted"
+              className="p-3 border border-slate-200 rounded-xl transition-colors flex items-center bg-slate-50/50"
             >
-              <span className="font-bold mr-3 w-6 h-6 flex items-center justify-center rounded-full text-xs bg-muted text-muted-foreground">
+              <span className="font-bold mr-3 w-7 h-7 flex items-center justify-center rounded-lg text-sm bg-white border border-slate-200 text-slate-600 shadow-sm shrink-0">
                 {String.fromCharCode(65 + idx)}
               </span>
-              <span><Latex>{option}</Latex></span>
+              <span className="text-slate-700 text-sm"><Latex>{option}</Latex></span>
             </div>
           ))}
         </div>
       )}
 
-      {/* Answer Collapsible Data */}
+      {/* Answer Collapsible Data (Teacher View) */}
       <div className="mt-6 space-y-2 print:hidden">
         {question.type === 'theory' && question.model_answer && (
-          <details className="group border rounded-lg overflow-hidden [&_summary::-webkit-details-marker]:hidden">
-            <summary className="flex items-center justify-between p-3 bg-muted/50 cursor-pointer font-medium text-sm hover:bg-muted transition-colors">
+          <details className="group border border-slate-200 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex items-center justify-between p-4 bg-slate-50 cursor-pointer font-semibold text-sm text-slate-700 hover:bg-slate-100 transition-colors">
               View Model Answer
-              <span className="transition group-open:rotate-180">
+              <span className="transition-transform duration-200 group-open:rotate-180 text-slate-400">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
               </span>
             </summary>
-            <div className="p-4 bg-background text-sm border-t leading-relaxed whitespace-pre-wrap">
+            <div className="p-4 bg-white text-sm border-t border-slate-100 leading-relaxed whitespace-pre-wrap text-slate-600">
               <Latex>{question.model_answer}</Latex>
             </div>
           </details>
         )}
 
         {question.type === 'mcq' && question.correct_answer && (
-          <details className="group border rounded-lg overflow-hidden [&_summary::-webkit-details-marker]:hidden">
-            <summary className="flex items-center justify-between p-3 bg-green-50/50 cursor-pointer font-medium text-sm hover:bg-green-50 transition-colors text-green-900 border-b border-transparent group-open:border-green-100">
-              View Answer
-              <span className="transition group-open:rotate-180">
+          <details className="group border border-emerald-200 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex items-center justify-between p-4 bg-emerald-50/50 cursor-pointer font-semibold text-sm hover:bg-emerald-50 transition-colors text-emerald-800">
+              View Correct Answer
+              <span className="transition-transform duration-200 group-open:rotate-180 text-emerald-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
               </span>
             </summary>
-            <div className="p-4 bg-background text-sm border-t border-green-100 leading-relaxed whitespace-pre-wrap font-medium text-green-900">
-              Correct Answer: <Latex>{question.correct_answer}</Latex>
-            </div>
-          </details>
-        )}
-
-        {question.explanation && (
-          <details className="group border rounded-lg overflow-hidden [&_summary::-webkit-details-marker]:hidden">
-            <summary className="flex items-center justify-between p-3 bg-muted/50 cursor-pointer font-medium text-sm hover:bg-muted transition-colors">
-              View Explanation
-              <span className="transition group-open:rotate-180">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-              </span>
-            </summary>
-            <div className="p-4 bg-background text-sm border-t leading-relaxed whitespace-pre-wrap text-muted-foreground">
-              <Latex>{question.explanation}</Latex>
-            </div>
-          </details>
-        )}
-
-        {question.hint && (
-          <details className="group border rounded-lg overflow-hidden border-yellow-200 [&_summary::-webkit-details-marker]:hidden">
-            <summary className="flex items-center justify-between p-3 bg-yellow-50 cursor-pointer font-medium text-sm text-yellow-800 hover:bg-yellow-100 transition-colors">
-              Show Hint
-              <span className="transition group-open:rotate-180">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-              </span>
-            </summary>
-            <div className="p-4 bg-background text-sm border-t border-yellow-200 leading-relaxed text-yellow-900">
-              💡 <Latex>{question.hint}</Latex>
+            <div className="p-4 bg-white text-sm border-t border-emerald-100 leading-relaxed whitespace-pre-wrap font-medium text-emerald-900 flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              <Latex>{question.correct_answer}</Latex>
             </div>
           </details>
         )}
       </div>
+
+      {/* AI Action Bar & Alternatives Panel */}
+      {!isRecommendation && (
+        <div className="mt-8 border-t border-slate-100 pt-4 print:hidden">
+          <button 
+            onClick={() => setShowAI(!showAI)}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+              showAI 
+                ? 'bg-primary/10 text-primary hover:bg-primary/20' 
+                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm'
+            }`}
+          >
+            <Sparkles className={`h-4 w-4 ${showAI ? 'text-primary' : 'text-slate-400'}`} />
+            {showAI ? 'Hide Alternatives' : 'AI Alternatives'}
+          </button>
+
+          {showAI && (
+            <div className="mt-4 p-5 bg-slate-50 border border-slate-200 rounded-xl">
+              {isFetchingAI ? (
+                <div className="flex flex-col items-center justify-center py-8 text-slate-500 space-y-3">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <p className="text-sm font-medium animate-pulse">AI is analyzing syllabus and generating alternatives...</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-bold text-slate-900 mb-2">Recommended Alternatives</h4>
+                  {alternatives.map((alt, i) => (
+                    <div key={alt.id} className="relative">
+                      <QuestionCard 
+                        question={alt} 
+                        isRecommendation 
+                      />
+                      <div className="absolute top-4 right-4 print:hidden">
+                        <button 
+                          onClick={() => onSwap && onSwap(alt)}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200 bg-white border border-slate-200 text-slate-700 hover:bg-primary hover:text-white hover:border-primary shadow-sm"
+                        >
+                          <ArrowLeftRight className="h-3 w-3" />
+                          Swap with this
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
     </div>
   );

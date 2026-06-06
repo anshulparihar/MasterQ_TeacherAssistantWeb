@@ -23,6 +23,7 @@ class Document(Base):
     uploader = relationship("User", back_populates="documents")
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
     paper_documents = relationship("PaperDocument", back_populates="document")
+    subject = relationship("Subject")
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"

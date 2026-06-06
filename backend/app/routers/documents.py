@@ -96,20 +96,36 @@ async def list_admin_documents(
 ):
     return await get_admin_documents(db)
 
+from sqlalchemy.orm import joinedload
+
 @router.get("/user/me")
 async def get_user_documents(
     subject_id: uuid.UUID | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Document).where(
+    query = select(Document).options(joinedload(Document.subject)).where(
         Document.user_id == current_user.id,
         Document.status == 'ready'
     )
     if subject_id:
         query = query.where(Document.subject_id == subject_id)
     result = await db.execute(query.order_by(Document.created_at.desc())) # upload_date isn't in model, created_at is
-    return result.scalars().all()
+    docs = result.unique().scalars().all()
+    
+    return [
+        {
+            "id": str(d.id),
+            "filename": d.filename,
+            "doc_type": d.doc_type,
+            "status": d.status,
+            "subject_id": str(d.subject_id) if d.subject_id else None,
+            "subject": {"name": d.subject.name} if getattr(d, 'subject', None) else None,
+            "academic_level": d.academic_level,
+            "created_at": d.created_at
+        }
+        for d in docs
+    ]
 
 @router.get("/{document_id}/status")
 async def get_document_status(

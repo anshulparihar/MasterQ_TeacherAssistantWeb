@@ -103,27 +103,39 @@ class DeduplicationService:
         """
         semaphore = asyncio.Semaphore(10)
         filtered = []
+        in_batch_hashes = set()
+        hash_lock = asyncio.Lock()
         
         async def process_candidate(q):
             async with semaphore:
-                # 1. Generate embedding
+                # 1. Gather text to embed/hash
                 text_to_embed = q.get('question_text', '')
                 if 'options' in q and q['options']:
                     opts = " ".join([o.get('text', '') for o in q['options']])
                     text_to_embed += " " + opts
                     
+                # 2. Compute hash and check intra-batch duplication
+                normalized = await self.normalize_question(text_to_embed)
+                q_hash = await self.compute_hash(normalized)
+                
+                async with hash_lock:
+                    if q_hash in in_batch_hashes:
+                        logger.info("Deduplication: In-batch exact match caught.")
+                        return None
+                    in_batch_hashes.add(q_hash)
+                    
+                # 3. Generate embedding
                 embs = await embedding_service.embed_texts([text_to_embed])
                 if not embs or len(embs) == 0:
                     return None
                     
                 q_emb = embs[0]
                 
-                # 2. Check duplicate
+                # 4. Check duplicate in DB
                 is_dup = await self.is_duplicate(db, user_id, text_to_embed, q_emb)
                 if not is_dup:
                     q['question_embedding'] = q_emb
-                    normalized = await self.normalize_question(text_to_embed)
-                    q['question_hash'] = await self.compute_hash(normalized)
+                    q['question_hash'] = q_hash
                     return q
                 return None
 
