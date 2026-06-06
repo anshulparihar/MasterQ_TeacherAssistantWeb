@@ -175,8 +175,8 @@ export default function DocumentsPage() {
                         <span className="font-medium text-slate-900 truncate max-w-[200px]" title={doc.filename}>{doc.filename}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-500">{doc.subject || '-'}</td>
-                    <td className="px-6 py-4 text-slate-500">{doc.level || '-'}</td>
+                    <td className="px-6 py-4 text-slate-500">{typeof doc.subject === 'object' ? (doc.subject as any)?.name : doc.subject || '-'}</td>
+                    <td className="px-6 py-4 text-slate-500">{typeof doc.level === 'object' ? (doc.level as any)?.name : doc.level || '-'}</td>
                     <td className="px-6 py-4">
                       {doc.status === 'ready' && (
                         <span className="inline-flex items-center gap-1.5 bg-green-50 text-green-700 border border-green-200 px-2.5 py-1 rounded-full text-xs font-semibold">

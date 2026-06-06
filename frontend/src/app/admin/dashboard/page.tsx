@@ -19,7 +19,7 @@ export default function AdminDashboardPage() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [filterUser, setFilterUser] = useState('');
   const [filterType, setFilterType] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isFeedLoading, setIsFeedLoading] = useState(false);
   const [hiddenLines, setHiddenLines] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export default function AdminDashboardPage() {
   };
 
   const fetchActivities = async () => {
-    setIsLoading(true);
+    setIsFeedLoading(true);
     try {
       const params = new URLSearchParams();
       if (filterUser) params.append('user_email', filterUser);
@@ -51,7 +51,7 @@ export default function AdminDashboardPage() {
       console.error(e);
       toast.error('Failed to load activity feed');
     } finally {
-      setIsLoading(false);
+      setIsFeedLoading(false);
     }
   };
 
@@ -245,7 +245,7 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="divide-y divide-slate-100 overflow-y-auto flex-1 custom-scrollbar">
-            {isLoading ? (
+            {isFeedLoading ? (
               <div className="p-8 text-center text-xs text-slate-400 font-medium">Loading feed...</div>
             ) : activities.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400 font-medium">No recent activity found.</div>

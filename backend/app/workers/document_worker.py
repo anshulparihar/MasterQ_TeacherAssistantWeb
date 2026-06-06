@@ -187,6 +187,7 @@ async def _process_document_async(document_id: str):
                 if not document.subject_id:
                     logger.info("auto_detecting_subject", document_id=document_id)
                     detected_subject_id, detected_level = await _auto_detect_subject_and_level(db, text_content)
+                    logger.info(f'---- Detected subject and level: {detected_subject_id}, {detected_level} -----')
                     if detected_subject_id:
                         document.subject_id = detected_subject_id
                         logger.info(
