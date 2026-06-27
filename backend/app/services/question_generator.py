@@ -210,36 +210,76 @@ class QuestionGenerationEngine:
                         "target_count": target_count
                     })
 
-        # 7. For each (type, difficulty) combination, generate questions in parallel
-        tasks = []
-        for batch in batches:
-            topic_context = await self.topic_service.build_topic_context(other_topics, selected_doc_topics, batch['difficulty'])
-            tasks.append(
-                self._generate_questions_batch(
-                    chunk_texts, topic_context, exam_name, exam_guidelines, exam_few_shot,
-                    subject_name, request.get('academic_level', 'High School'), 
-                    batch['type'], batch['difficulty'], batch['target_count'], user_id,
-                    request.get('selected_topics', []), request.get('selected_subtopics', [])
-                )
+        # 7. Dynamic Fallback Loop Setup
+        all_valid_questions = []
+        MAX_FALLBACK_RETRIES = 3
+        
+        # Track original targets
+        batch_targets = {f"{b['type']}_{b['difficulty']}": b.copy() for b in batches}
+        original_targets = {k: v['target_count'] for k, v in batch_targets.items()}
+        
+        from app.services.embedding_service import embedding_service
+        
+        for attempt in range(MAX_FALLBACK_RETRIES + 1):
+            tasks = []
+            
+            for key, batch in batch_targets.items():
+                if batch['target_count'] > 0:
+                    topic_context = await self.topic_service.build_topic_context(other_topics, selected_doc_topics, batch['difficulty'])
+                    tasks.append(
+                        self._generate_questions_batch(
+                            chunk_texts, topic_context, exam_name, exam_guidelines, exam_few_shot,
+                            subject_name, request.get('academic_level', 'High School'), 
+                            batch['type'], batch['difficulty'], batch['target_count'], user_id,
+                            request.get('selected_topics', []), request.get('selected_subtopics', []),
+                            batch_idx=attempt
+                        )
+                    )
+            
+            if not tasks:
+                break # All targets met
+                
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            all_generated_this_run = []
+            for i, res in enumerate(results):
+                if isinstance(res, Exception):
+                    logger.error(f"Batch generation failed on attempt {attempt}: {res}")
+                    continue
+                all_generated_this_run.extend(res)
+                
+            if not all_generated_this_run:
+                continue
+
+            valid_this_run = await self.dedup_service.filter_duplicates(
+                db=db,
+                user_id=user_id,
+                candidate_questions=all_generated_this_run,
+                embedding_service=embedding_service
             )
             
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        all_generated_questions = []
-        for i, res in enumerate(results):
-            if isinstance(res, Exception):
-                logger.error(f"Batch generation failed: {res}")
-                continue
-            all_generated_questions.extend(res)
+            all_valid_questions.extend(valid_this_run)
+            
+            # Recalculate shortfalls for next attempt
+            current_counts = {}
+            for q in all_valid_questions:
+                k = f"{q.get('question_type')}_{q.get('difficulty')}"
+                current_counts[k] = current_counts.get(k, 0) + 1
+                
+            all_targets_met = True
+            for key, batch in batch_targets.items():
+                current = current_counts.get(key, 0)
+                shortfall = original_targets[key] - current
+                if shortfall > 0:
+                    batch['target_count'] = shortfall
+                    all_targets_met = False
+                else:
+                    batch['target_count'] = 0
+                    
+            if all_targets_met:
+                break
 
-        # 8. Run deduplication on all generated questions
-        from app.services.embedding_service import embedding_service
-        valid_questions = await self.dedup_service.filter_duplicates(
-            db=db,
-            user_id=user_id,
-            candidate_questions=all_generated_questions,
-            embedding_service=embedding_service
-        )
+        valid_questions = all_valid_questions
         
         # Diagram injection via batch detection to save API rate limits
         diagram_needs = await diagram_service.detect_diagram_need_batch(
@@ -247,9 +287,7 @@ class QuestionGenerationEngine:
             subject=subject_name
         )
         
-        processed_questions = []
-        for i, q in enumerate(valid_questions):
-            detection = diagram_needs[i] if i < len(diagram_needs) else {'needs_diagram': False}
+        async def process_diagram(q, detection):
             if detection.get('needs_diagram'):
                 diag_url = await diagram_service.generate_diagram_and_upload(
                     question_text=q['question_text'],
@@ -260,9 +298,14 @@ class QuestionGenerationEngine:
                 if diag_url:
                     q['diagram_url'] = diag_url
                     q['diagram_type'] = 'auto_generated'
-            processed_questions.append(q)
+            return q
             
-        valid_questions = processed_questions
+        diagram_tasks = []
+        for i, q in enumerate(valid_questions):
+            detection = diagram_needs[i] if i < len(diagram_needs) else {'needs_diagram': False}
+            diagram_tasks.append(process_diagram(q, detection))
+            
+        valid_questions = await asyncio.gather(*diagram_tasks)
 
         # 9. Split into main questions + recommendations based on original counts
         main_qs = []
@@ -325,7 +368,7 @@ class QuestionGenerationEngine:
             try:
                 async with db.begin_nested():
                     new_id = str(uuid.uuid4())
-                    sql_insert = "INSERT INTO topics (id, name, subject_id, created_at) VALUES (:id, :name, :subject_id, NOW())"
+                    sql_insert = "INSERT INTO topics (id, name, subject_id) VALUES (:id, :name, :subject_id)"
                     await db.execute(text(sql_insert), {"id": new_id, "name": topic_name, "subject_id": str(request['subject_id'])})
                     topic_cache[topic_name] = new_id
                     return new_id
@@ -409,12 +452,29 @@ class QuestionGenerationEngine:
         count: int,
         user_id: uuid.UUID,
         selected_topics: List[str] = [],
-        selected_subtopics: List[str] = []
+        selected_subtopics: List[str] = [],
+        batch_idx: int = 0
     ) -> List[Dict[str, Any]]:
         
         joined_chunk_texts = "\n\n---\n\n".join(context_chunks)
         marks = await self._calculate_marks(exam_guidelines, question_type, difficulty)
         
+        # INSTRUCTION SHARDING
+        sharding_instruction = ""
+        subtopics_list = selected_subtopics if selected_subtopics else selected_topics
+        if subtopics_list:
+            if difficulty == "easy":
+                f_subtopic = subtopics_list[batch_idx % len(subtopics_list)]
+                sharding_instruction = f"IMPORTANT: This is an EASY question batch. Focus strictly on: {f_subtopic}"
+            elif difficulty == "medium":
+                idx1 = batch_idx % len(subtopics_list)
+                idx2 = (batch_idx + 1) % len(subtopics_list)
+                f_subtopic = f"{subtopics_list[idx1]} AND {subtopics_list[idx2]}"
+                sharding_instruction = f"IMPORTANT: This is a MEDIUM question batch. Synthesize concepts from: {f_subtopic}"
+            else:
+                f_subtopic = " AND ".join(subtopics_list[:3])
+                sharding_instruction = f"IMPORTANT: This is a HARD question batch. Synthesize concepts from: {f_subtopic}"
+
         topic_filter_instructions = ""
         if selected_topics or selected_subtopics:
             topic_filter_instructions = f"""
@@ -422,6 +482,7 @@ STRICT TOPIC FILTERING REQUIRED:
 You MUST ONLY generate questions related to the following selected topics and subtopics:
 Selected Topics: {json.dumps(selected_topics)}
 Selected Subtopics: {json.dumps(selected_subtopics)}
+{sharding_instruction}
 Do NOT generate general questions. All generated questions must fall within these specific topics/subtopics.
 """
 
@@ -499,6 +560,7 @@ MATH FORMATTING:
 - Do NOT use backticks or markdown coloring (like 'marked in red') for math.
 
 CRITICAL: Generate questions ONLY from the provided context. Do not use outside knowledge.
+If it can be explained in the question, do not create diagram, Only create diagram when absolutely necesarry
 
 Return ONLY valid JSON in this exact format:
 {json_format}
@@ -511,16 +573,30 @@ Return ONLY valid JSON in this exact format:
                         prompt,
                         generation_config=genai.GenerationConfig(response_mime_type="application/json")
                     )
-                    raw_text = response.text
+                    raw_text = response.text.strip()
                     import re
                     match = re.search(r'```(?:json)?\s*(.*?)\s*```', raw_text, re.DOTALL)
                     if match:
-                        raw_text = match.group(1)
+                        raw_text = match.group(1).strip()
                     else:
-                        start = raw_text.find('{')
-                        end = raw_text.rfind('}')
-                        if start != -1 and end != -1:
-                            raw_text = raw_text[start:end+1]
+                        # Safely extract JSON whether it's an object or an array
+                        start_obj = raw_text.find('{')
+                        start_arr = raw_text.find('[')
+                        
+                        start = -1
+                        if start_obj != -1 and start_arr != -1:
+                            start = min(start_obj, start_arr)
+                        elif start_obj != -1:
+                            start = start_obj
+                        elif start_arr != -1:
+                            start = start_arr
+                            
+                        if start != -1:
+                            is_array = raw_text[start] == '['
+                            end_char = ']' if is_array else '}'
+                            end = raw_text.rfind(end_char)
+                            if end != -1:
+                                raw_text = raw_text[start:end+1]
 
                     try:
                         data = json.loads(raw_text)
@@ -537,24 +613,22 @@ Return ONLY valid JSON in this exact format:
 
                     questions = data.get("questions", [])
                     
-                    # FIX 4: MCQ answer validation
+                    # FIX 4: MCQ answer validation & Python-Side Shuffling
                     validated = []
+                    import random
                     for q in questions:
                         if q['question_type'] == 'mcq':
                             options = q.get('options', [])
                             
-                            # Must have exactly 4 options
                             if len(options) != 4:
                                 logger.warning(f"MCQ has {len(options)} options, expected 4. Discarding.")
                                 continue
                             
-                            # Must have exactly 1 correct answer
                             correct_count = sum(1 for o in options if o.get('is_correct', False))
                             if correct_count == 0:
                                 logger.warning("MCQ has no correct answer. Discarding.")
                                 continue
                             if correct_count > 1:
-                                logger.warning(f"MCQ has {correct_count} correct answers. Keeping first only.")
                                 first_correct_found = False
                                 for o in options:
                                     if o.get('is_correct'):
@@ -563,7 +637,17 @@ Return ONLY valid JSON in this exact format:
                                         else:
                                             first_correct_found = True
                             
-                            # Ensure the "answer" field is set to the text of the correct option for insertion
+                            # Python-side Option Shuffling
+                            # Ensure we don't carry over the LLM's positional bias
+                            random.shuffle(options)
+                            
+                            # Re-assign keys A, B, C, D
+                            keys = ['A', 'B', 'C', 'D']
+                            for i, o in enumerate(options):
+                                o['key'] = keys[i]
+                            
+                            q['options'] = options
+                            
                             correct_opt = next((o for o in options if o.get('is_correct', False)), None)
                             if correct_opt:
                                 q['answer'] = correct_opt.get('text', '')

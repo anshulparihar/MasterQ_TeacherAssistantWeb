@@ -52,6 +52,11 @@ class QuestionBase(BaseModel):
     model_answer: Optional[str] = None
     difficulty: str
     topic_id: uuid.UUID
+    diagram_url: Optional[str] = None
+    diagram_type: Optional[str] = None
+    explanation: Optional[str] = None
+    hint: Optional[str] = None
+    marks: Optional[float] = None
 
 class QuestionResponse(QuestionBase):
     id: uuid.UUID

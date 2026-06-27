@@ -32,3 +32,4 @@ rdkit==2024.3.5
 reportlab==4.2.2
 aiofiles
 langchain-text-splitters
+networkx==3.3

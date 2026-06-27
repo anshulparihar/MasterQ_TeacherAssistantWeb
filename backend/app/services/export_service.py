@@ -131,15 +131,15 @@ class ExportService:
         if not diagram_url:
             return None
         try:
-            # diagram_url format assumption: http://minio:9000/bucket-name/key or s3://bucket/key
-            # We'll assume the URL points to a bucket and key we can extract or we use storage service
-            # For this MVP, if it's stored via StorageService, we fetch it by key
-            # Assuming diagram_url stores the S3 Key
-            bucket = "admin-documents" # or user-documents, assuming admin for simplicity
-            file_bytes = self.storage.get_file(bucket, diagram_url)
-            return file_bytes
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(diagram_url)
+                if response.status_code == 200:
+                    return response.content
+            logger.error(f"Failed to download diagram: HTTP {response.status_code}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to download diagram: {e}")
+            logger.error(f"Exception downloading diagram: {e}")
             return None
 
     # =========================================================================
@@ -219,6 +219,28 @@ class ExportService:
                 
                 q_elements = [header_table]
                 
+                if getattr(q, 'diagram_url', None):
+                    img_bytes = await self._download_diagram(q.diagram_url)
+                    if img_bytes:
+                        try:
+                            from reportlab.lib.utils import ImageReader
+                            img_io = io.BytesIO(img_bytes)
+                            img_reader = ImageReader(img_io)
+                            orig_w, orig_h = img_reader.getSize()
+                            max_w = 4 * inch
+                            ratio = min(max_w / orig_w, 1.0)
+                            draw_w = orig_w * ratio
+                            draw_h = orig_h * ratio
+                            
+                            img_io.seek(0)
+                            rl_img = Image(img_io, width=draw_w, height=draw_h)
+                            rl_img.hAlign = 'CENTER'
+                            q_elements.append(Spacer(1, 8))
+                            q_elements.append(rl_img)
+                            q_elements.append(Spacer(1, 8))
+                        except Exception as e:
+                            logger.error(f"Failed to embed PDF diagram: {e}")
+
                 if q.options:
                     for idx, opt in enumerate(q.options):
                         opt_text = self.math.simple_sub_super_to_reportlab(opt)
@@ -244,6 +266,28 @@ class ExportService:
                 header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('TOPPADDING', (0,0), (-1,-1), 0), ('BOTTOMPADDING', (0,0), (-1,-1), 0)]))
                 
                 q_elements = [header_table, Spacer(1, 10)]
+                
+                if getattr(q, 'diagram_url', None):
+                    img_bytes = await self._download_diagram(q.diagram_url)
+                    if img_bytes:
+                        try:
+                            from reportlab.lib.utils import ImageReader
+                            img_io = io.BytesIO(img_bytes)
+                            img_reader = ImageReader(img_io)
+                            orig_w, orig_h = img_reader.getSize()
+                            max_w = 4 * inch
+                            ratio = min(max_w / orig_w, 1.0)
+                            draw_w = orig_w * ratio
+                            draw_h = orig_h * ratio
+                            
+                            img_io.seek(0)
+                            rl_img = Image(img_io, width=draw_w, height=draw_h)
+                            rl_img.hAlign = 'CENTER'
+                            q_elements.append(rl_img)
+                            q_elements.append(Spacer(1, 10))
+                        except Exception as e:
+                            logger.error(f"Failed to embed PDF diagram: {e}")
+
                 elements.append(KeepTogether(q_elements))
                 global_q_num += 1
                 
@@ -358,6 +402,18 @@ class ExportService:
                 q_marks = q.marks if q.marks is not None else paper_data['mcq_marks']
                 p.add_run(f"\t\t[{q_marks} Mark{'s' if q_marks > 1 else ''}]").bold = True
                 
+                if getattr(q, 'diagram_url', None):
+                    img_bytes = await self._download_diagram(q.diagram_url)
+                    if img_bytes:
+                        try:
+                            img_io = io.BytesIO(img_bytes)
+                            dp = doc.add_paragraph()
+                            dp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run = dp.add_run()
+                            run.add_picture(img_io, width=Inches(4))
+                        except Exception as e:
+                            logger.error(f"Failed to embed DOCX diagram: {e}")
+
                 if q.options:
                     for idx, opt in enumerate(q.options):
                         opt_p = doc.add_paragraph()
@@ -395,6 +451,19 @@ class ExportService:
                 
                 q_marks = q.marks if q.marks is not None else paper_data['theory_marks']
                 p.add_run(f"\t\t[{q_marks} Mark{'s' if q_marks > 1 else ''}]").bold = True
+                
+                if getattr(q, 'diagram_url', None):
+                    img_bytes = await self._download_diagram(q.diagram_url)
+                    if img_bytes:
+                        try:
+                            img_io = io.BytesIO(img_bytes)
+                            dp = doc.add_paragraph()
+                            dp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run = dp.add_run()
+                            run.add_picture(img_io, width=Inches(4))
+                        except Exception as e:
+                            logger.error(f"Failed to embed DOCX diagram: {e}")
+
                 doc.add_paragraph() # Spacer for answer
                 global_q_num += 1
 

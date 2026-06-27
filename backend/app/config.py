@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # LLM (Gemini)
     GEMINI_API_KEY: str = Field(default="")
     GEMINI_MODEL_NAME: str = Field(default="gemini-2.5-pro")
+    DIAGRAM_MODEL_NAME: str = Field(default="gemini-3.5-flash")
     EMBEDDING_MODEL_NAME: str = Field(default="models/text-embedding-004")
     
     # MinIO

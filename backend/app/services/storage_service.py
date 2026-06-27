@@ -50,6 +50,9 @@ class StorageService:
                 Params={'Bucket': bucket, 'Key': key},
                 ExpiresIn=expires
             )
+            # Fix for local development: replace internal docker network alias with localhost
+            if settings.MINIO_ENDPOINT == "minio:9000":
+                url = url.replace("http://minio:9000", "http://localhost:9000")
             return url
         except ClientError as e:
             logger.error("Failed to generate presigned URL", error=str(e))

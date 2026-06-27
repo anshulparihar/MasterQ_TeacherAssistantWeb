@@ -139,6 +139,34 @@ export const QuestionCard = React.memo(function QuestionCard({ question, index, 
             </div>
           </details>
         )}
+
+        {question.hint && (
+          <details className="group border border-amber-200 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex items-center justify-between p-4 bg-amber-50/50 cursor-pointer font-semibold text-sm hover:bg-amber-50 transition-colors text-amber-800">
+              View Hint
+              <span className="transition-transform duration-200 group-open:rotate-180 text-amber-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </summary>
+            <div className="p-4 bg-white text-sm border-t border-amber-100 leading-relaxed whitespace-pre-wrap text-amber-900">
+              <Latex>{question.hint}</Latex>
+            </div>
+          </details>
+        )}
+
+        {question.explanation && (
+          <details className="group border border-indigo-200 rounded-xl overflow-hidden [&_summary::-webkit-details-marker]:hidden">
+            <summary className="flex items-center justify-between p-4 bg-indigo-50/50 cursor-pointer font-semibold text-sm hover:bg-indigo-50 transition-colors text-indigo-800">
+              View Explanation
+              <span className="transition-transform duration-200 group-open:rotate-180 text-indigo-600">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </span>
+            </summary>
+            <div className="p-4 bg-white text-sm border-t border-indigo-100 leading-relaxed whitespace-pre-wrap text-indigo-900">
+              <Latex>{question.explanation}</Latex>
+            </div>
+          </details>
+        )}
       </div>
 
       {/* AI Action Bar & Alternatives Panel */}
