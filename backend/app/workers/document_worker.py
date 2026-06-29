@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 logger = structlog.get_logger()
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
-_gemini_model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
+# removed global genai config
+from app.core.llm_wrapper import LLMWrapper
 
 
 def _make_session_factory():
@@ -106,9 +106,10 @@ Return ONLY a valid JSON object. No explanation. No markdown:
 }}"""
 
     try:
-        response = await asyncio.to_thread(
-            _gemini_model.generate_content,
-            prompt,
+        response = await LLMWrapper.generate_content_async(
+            model_name=settings.GEMINI_MODEL_NAME,
+            prompt=prompt,
+            stream=False,
             generation_config=genai.GenerationConfig(response_mime_type="application/json")
         )
         data = json.loads(response.text)

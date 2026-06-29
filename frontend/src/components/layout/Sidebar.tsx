@@ -124,6 +124,42 @@ export function Sidebar() {
                 </span>
               )}
             </Link>
+            <Link
+              href="/admin/config"
+              title={isCollapsed ? "System Config" : undefined}
+              className={cn(
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 mt-1",
+                pathname.startsWith('/admin/config')
+                  ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                isCollapsed ? "justify-center" : "justify-start"
+              )}
+            >
+              <Settings className={cn("h-5 w-5 shrink-0", pathname.startsWith('/admin/config') ? "text-primary-foreground" : "text-slate-500")} />
+              {!isCollapsed && (
+                <span className="overflow-hidden whitespace-nowrap">
+                  System Config
+                </span>
+              )}
+            </Link>
+            <Link
+              href="/admin/usage"
+              title={isCollapsed ? "Usage Logs" : undefined}
+              className={cn(
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 mt-1",
+                pathname.startsWith('/admin/usage')
+                  ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                isCollapsed ? "justify-center" : "justify-start"
+              )}
+            >
+              <FileText className={cn("h-5 w-5 shrink-0", pathname.startsWith('/admin/usage') ? "text-primary-foreground" : "text-slate-500")} />
+              {!isCollapsed && (
+                <span className="overflow-hidden whitespace-nowrap">
+                  Usage Logs
+                </span>
+              )}
+            </Link>
           </div>
         )}
       </nav>

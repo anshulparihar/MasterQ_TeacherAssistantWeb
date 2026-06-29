@@ -28,7 +28,7 @@ async def generate_questions(
 ):
     try:
         logger.info("question_generation_requested", user_id=str(user.id), subject_id=str(request.subject_id), exam_type_id=str(request.exam_type_id))
-        
+        logger.info(f'request.model_dump():{request.model_dump()}')
         response = await question_generator.generate_paper(db, user.id, request.model_dump())
         return response
     except ValueError as e:

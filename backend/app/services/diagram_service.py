@@ -13,14 +13,15 @@ from app.services.code_executor import execute_diagram_code, CodeValidationError
 from app.schemas.diagram import DiagramGenerationResponse
 
 logger = structlog.get_logger(__name__)
-genai.configure(api_key=settings.GEMINI_API_KEY)
+# removed global genai config
+from app.core.llm_wrapper import LLMWrapper
 
 class DiagramGenerationService:
     def __init__(self):
         self.semaphore = asyncio.Semaphore(settings.LLM_SEMAPHORE_LIMIT)
         # Use main model for detection, dedicated model for diagram generation
-        self.gemini = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
-        self.diagram_gemini = genai.GenerativeModel(settings.DIAGRAM_MODEL_NAME)
+        # self.gemini = genai.GenerativeModel(settings.GEMINI_MODEL_NAME) # Using LLMWrapper
+        # self.diagram_gemini = genai.GenerativeModel(settings.DIAGRAM_MODEL_NAME)
         
     async def detect_diagram_need_batch(
         self,
@@ -56,9 +57,10 @@ Return JSON ONLY. It MUST be a JSON array of objects, one for each question. YOU
         
         async with self.semaphore:
             try:
-                response = await asyncio.to_thread(
-                    self.gemini.generate_content,
-                    prompt,
+                response = await LLMWrapper.generate_content_async(
+                    model_name=settings.GEMINI_MODEL_NAME,
+                    prompt=prompt,
+                    stream=False,
                     generation_config=genai.GenerationConfig(response_mime_type="application/json")
                 )
                 raw_text = response.text
@@ -129,9 +131,10 @@ Return JSON ONLY in this format:
 
         async with self.semaphore:
             try:
-                response = await asyncio.to_thread(
-                    self.diagram_gemini.generate_content,
-                    prompt,
+                response = await LLMWrapper.generate_content_async(
+                    model_name=settings.DIAGRAM_MODEL_NAME,
+                    prompt=prompt,
+                    stream=False,
                     generation_config=genai.GenerationConfig(response_mime_type="application/json")
                 )
                 

@@ -11,13 +11,14 @@ from app.models.topic import DocumentTopic
 
 logger = structlog.get_logger()
 
-genai.configure(api_key=settings.GEMINI_API_KEY)
+# removed global genai configure
+from app.core.llm_wrapper import LLMWrapper
 
 class TopicExtractionService:
     
     def __init__(self):
         self.semaphore = asyncio.Semaphore(settings.LLM_SEMAPHORE_LIMIT)
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
+        # self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME) # Handled by LLMWrapper
     
     async def extract_topics_from_document(
         self, 
@@ -53,9 +54,10 @@ class TopicExtractionService:
         
         async with self.semaphore:
             # We use to_thread because Gemini generation config is synchronous under the hood natively
-            response = await asyncio.to_thread(
-                self.model.generate_content,
-                prompt,
+            response = await LLMWrapper.generate_content_async(
+                model_name=settings.GEMINI_MODEL_NAME,
+                prompt=prompt,
+                stream=False,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json"
                 )

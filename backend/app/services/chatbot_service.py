@@ -3,20 +3,20 @@ import uuid
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-import google.generativeai as genai
+# removed global genai import
 
 from app.config import settings
 from app.services.retrieval_service import retrieval_service
 
 logger = structlog.get_logger()
-genai.configure(api_key=settings.GEMINI_API_KEY)
+from app.core.llm_wrapper import LLMWrapper
 
 class ChatbotService:
     
     def __init__(self):
         self.semaphore = asyncio.Semaphore(settings.LLM_SEMAPHORE_LIMIT)
 
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
+        # self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME) # Using LLMWrapper instead
         self.retrieval_service = retrieval_service
     
     async def chat_stream(
@@ -106,7 +106,11 @@ Respond helpfully and concisely based ONLY on the context above.
         # 4. Call Gemini with stream
         assistant_reply = ""
         async with self.semaphore:
-            response = await self.model.generate_content_async(system_prompt, stream=True)
+            response = await LLMWrapper.generate_content_async(
+                model_name=settings.GEMINI_MODEL_NAME, 
+                prompt=system_prompt, 
+                stream=True
+            )
             async for chunk in response:
                 if chunk.text:
                     assistant_reply += chunk.text

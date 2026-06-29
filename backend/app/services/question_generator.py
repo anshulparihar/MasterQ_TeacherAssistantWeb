@@ -20,14 +20,15 @@ from app.services.cache_service import cache_service
 from app.models.document import Document
 
 logger = structlog.get_logger()
-genai.configure(api_key=settings.GEMINI_API_KEY)
+# removed global genai configure
+from app.core.llm_wrapper import LLMWrapper
 
 class QuestionGenerationEngine:
     
     def __init__(self):
         self.semaphore = asyncio.Semaphore(settings.LLM_SEMAPHORE_LIMIT)
 
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
+        # self.model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME) # Handled by LLMWrapper
         self.retrieval_service = retrieval_service
         self.topic_service = topic_service
         self.dedup_service = dedup_service
@@ -549,7 +550,7 @@ DIFFICULTY RULES:
 QUESTION REQUIREMENTS:
 - Questions must test CONCEPTUAL understanding, not memorization
 - All questions must be strictly based on the provided context material
-- For MCQ: provide exactly 4 options (A, B, C, D), only one correct
+- For MCQ: provide exactly 4 options (A, B, C, D), only one correct.
 - Questions must match the style, depth and complexity of {exam_name} previous year papers
 - Marks per question: {marks}
 
@@ -568,9 +569,10 @@ Return ONLY valid JSON in this exact format:
         for attempt in range(2):
             async with self.semaphore:
                 try:
-                    response = await asyncio.to_thread(
-                        self.model.generate_content,
-                        prompt,
+                    response = await LLMWrapper.generate_content_async(
+                        model_name=settings.GEMINI_MODEL_NAME,
+                        prompt=prompt,
+                        stream=False,
                         generation_config=genai.GenerationConfig(response_mime_type="application/json")
                     )
                     raw_text = response.text.strip()

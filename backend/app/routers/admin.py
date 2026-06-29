@@ -8,8 +8,99 @@ import asyncio
 from app.database import get_db
 from app.core.deps import get_current_user, get_current_admin
 from app.models.user import User
+from app.models.config import SystemConfig
+from app.models.logs import UsageLog, AuditLog
+from app.core.security import create_access_token
+from datetime import timedelta
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
+
+class ConfigUpdateRequest(BaseModel):
+    key: str
+    value: Dict[str, Any]
+    description: str | None = None
+
+@router.get("/config")
+async def get_configs(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    sql = "SELECT key, value, description FROM system_configs"
+    res = await db.execute(text(sql))
+    return [{"key": r[0], "value": r[1], "description": r[2]} for r in res.all()]
+
+@router.put("/config")
+async def update_config(
+    request: ConfigUpdateRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    import json
+    # Insert or update
+    sql = """
+        INSERT INTO system_configs (key, value, description) 
+        VALUES (:key, :value, :description)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description
+    """
+    await db.execute(text(sql), {"key": request.key, "value": json.dumps(request.value), "description": request.description})
+    await db.commit()
+    return {"status": "success"}
+
+@router.get("/usage")
+async def get_usage_logs(
+    user_id: uuid.UUID | None = Query(None),
+    limit: int = Query(50, le=500),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    if user_id:
+        sql = "SELECT id, user_id, action_type, tokens_used, timestamp FROM usage_logs WHERE user_id = :user_id ORDER BY timestamp DESC LIMIT :limit"
+        res = await db.execute(text(sql), {"user_id": str(user_id), "limit": limit})
+    else:
+        sql = "SELECT id, user_id, action_type, tokens_used, timestamp FROM usage_logs ORDER BY timestamp DESC LIMIT :limit"
+        res = await db.execute(text(sql), {"limit": limit})
+    return [{"id": str(r[0]), "user_id": str(r[1]), "action_type": r[2], "tokens_used": r[3], "timestamp": r[4]} for r in res.all()]
+
+@router.get("/audit")
+async def get_audit_logs(
+    user_id: uuid.UUID | None = Query(None),
+    limit: int = Query(50, le=500),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    # filter by target_id if user_id is provided, else get all
+    if user_id:
+        sql = "SELECT id, admin_id, action, target_id, details, timestamp FROM audit_logs WHERE target_id = :target_id ORDER BY timestamp DESC LIMIT :limit"
+        res = await db.execute(text(sql), {"target_id": str(user_id), "limit": limit})
+    else:
+        sql = "SELECT id, admin_id, action, target_id, details, timestamp FROM audit_logs ORDER BY timestamp DESC LIMIT :limit"
+        res = await db.execute(text(sql), {"limit": limit})
+    return [{"id": str(r[0]), "admin_id": str(r[1]) if r[1] else None, "action": r[2], "target_id": r[3], "details": r[4], "timestamp": r[5]} for r in res.all()]
+
+@router.post("/impersonate/{target_user_id}")
+async def impersonate_user(
+    target_user_id: uuid.UUID,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    sql = "SELECT id, email, is_admin FROM users WHERE id = :id"
+    res = await db.execute(text(sql), {"id": str(target_user_id)})
+    row = res.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    access_token_expires = timedelta(minutes=60) # 1 hour impersonation
+    access_token = create_access_token(
+        data={"sub": row[1], "id": str(row[0]), "impersonator": str(admin.id)}, 
+        expires_delta=access_token_expires
+    )
+    
+    # Log the impersonation action
+    audit_sql = "INSERT INTO audit_logs (admin_id, action, target_id) VALUES (:admin_id, 'impersonate_user', :target_id)"
+    await db.execute(text(audit_sql), {"admin_id": str(admin.id), "target_id": str(target_user_id)})
+    await db.commit()
+    
+    return {"access_token": access_token, "token_type": "bearer", "role": "admin" if row[2] else "user"}
 
 class RoleUpdateRequest(BaseModel):
     role: str
@@ -300,6 +391,7 @@ async def upload_few_shot_examples_file(
         # Use LLM to extract example questions from the text
         from app.services.chatbot_service import chatbot_service
         import google.generativeai as genai
+        from app.core.llm_wrapper import LLMWrapper
         
         prompt = f"""
 You are an expert educational data extractor.
@@ -320,8 +412,12 @@ Example:
 }}
 Return ONLY valid JSON.
 """
-        model = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
-        response = await asyncio.to_thread(model.generate_content, prompt)
+        response = await LLMWrapper.generate_content_async(
+            model_name='gemini-2.5-flash',
+            prompt=prompt,
+            stream=False,
+            generation_config=genai.GenerationConfig(response_mime_type="application/json")
+        )
         
         try:
             few_shot_data = json.loads(response.text)

@@ -111,7 +111,7 @@ class DeduplicationService:
                 # 1. Gather text to embed/hash
                 text_to_embed = q.get('question_text', '')
                 if 'options' in q and q['options']:
-                    opts = " ".join([o.get('text', '') for o in q['options']])
+                    opts = " ".join([o.get('text', '') if isinstance(o, dict) else str(o) for o in q['options']])
                     text_to_embed += " " + opts
                     
                 # 2. Compute hash and check intra-batch duplication

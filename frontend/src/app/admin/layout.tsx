@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+import { GlobalUserFilter } from '@/components/admin/GlobalUserFilter';
+
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
@@ -27,5 +29,14 @@ export default function Layout({ children }: { children: ReactNode }) {
     );
   }
 
-  return <DashboardLayout>{children}</DashboardLayout>;
+  return (
+    <DashboardLayout>
+      <div className="flex flex-col space-y-6">
+        <div className="flex justify-end">
+          <GlobalUserFilter />
+        </div>
+        {children}
+      </div>
+    </DashboardLayout>
+  );
 }

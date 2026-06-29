@@ -10,9 +10,9 @@ import structlog
 from app.config import settings
 
 logger = structlog.get_logger()
-genai.configure(api_key=settings.GEMINI_API_KEY)
-
-vision_model = genai.GenerativeModel(settings.GEMINI_MODEL_NAME)
+# removed global genai config
+from app.core.llm_wrapper import LLMWrapper
+# vision_model = genai.GenerativeModel(...) # using LLMWrapper
 MAX_CONCURRENT_OCR = 5
 ocr_semaphore = asyncio.Semaphore(MAX_CONCURRENT_OCR)
 MAX_OCR_RETRIES = 3
@@ -48,9 +48,10 @@ Extract ALL text exactly as it appears. Rules:
     for retry in range(MAX_OCR_RETRIES):
         try:
             async with ocr_semaphore:
-                response = await asyncio.to_thread(
-                    vision_model.generate_content,
-                    [prompt, {"mime_type": "image/png", "data": img_bytes}]
+                response = await LLMWrapper.generate_content_async(
+                    model_name=settings.GEMINI_MODEL_NAME,
+                    prompt=[prompt, {"mime_type": "image/png", "data": img_bytes}],
+                    stream=False
                 )
                 return response.text.strip(), 95.0
         except Exception as e:
